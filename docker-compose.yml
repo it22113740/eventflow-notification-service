@@ -1,0 +1,90 @@
+version: "3.9"
+
+services:
+  # ─── Notification Service ──────────────────────────────────────────────────
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: eventflow-notification-service
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3004}:3004"
+    environment:
+      NODE_ENV: production
+      PORT: 3004
+      SERVICE_NAME: eventflow-notification-service
+      MONGODB_URI: mongodb://mongo:27017/eventflow_notifications
+      JWT_SECRET: ${JWT_SECRET}
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASS: ${SMTP_PASS}
+      CORS_ORIGIN: ${CORS_ORIGIN:-*}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    volumes:
+      - notification_logs:/app/logs
+    networks:
+      - eventflow-network
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3004/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # ─── MongoDB ───────────────────────────────────────────────────────────────
+  mongo:
+    image: mongo:7.0-jammy
+    container_name: eventflow-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: eventflow_notifications
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - eventflow-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ─── Mongo Express (dev UI) ────────────────────────────────────────────────
+  mongo-express:
+    image: mongo-express:1.0.2-20
+    container_name: eventflow-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH_USERNAME: ${MONGO_EXPRESS_USER:-admin}
+      ME_CONFIG_BASICAUTH_PASSWORD: ${MONGO_EXPRESS_PASS:-secret}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    networks:
+      - eventflow-network
+    profiles:
+      - dev  # only starts with: docker compose --profile dev up
+
+volumes:
+  mongo_data:
+    driver: local
+  notification_logs:
+    driver: local
+
+networks:
+  eventflow-network:
+    driver: bridge
+    name: eventflow-network
