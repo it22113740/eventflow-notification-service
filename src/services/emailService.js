@@ -69,17 +69,36 @@ const EMAIL_TEMPLATES = {
 
 let transporter = null;
 
+const isBrevoHost = () =>
+  String(process.env.SMTP_HOST || "")
+    .toLowerCase()
+    .includes("brevo");
+
+/**
+ * Brevo SMTP login is often *@smtp-brevo.com; the visible From must be a verified sender (SMTP_FROM).
+ * Gmail and others can use SMTP_USER as From when SMTP_FROM is unset.
+ */
+const getMailFrom = () => {
+  const address = process.env.SMTP_FROM || process.env.SMTP_USER;
+  return `"EventFlow Notifications" <${address}>`;
+};
+
 const createTransporter = () => {
   if (transporter) return transporter;
 
+  const port = Number(process.env.SMTP_PORT || 587);
+  const secure = process.env.SMTP_SECURE === "true";
+
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST || "smtp.gmail.com",
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: process.env.SMTP_SECURE === "true",
+    port,
+    secure,
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
+    // Brevo / most relays on 587 use STARTTLS
+    requireTLS: !secure && port === 587,
     pool: true,
     maxConnections: 5,
     maxMessages: 100,
@@ -111,12 +130,18 @@ const sendEmail = async (to, type, message) => {
     `<p>${message}</p>`;
 
   const mailOptions = {
-    from: `"EventFlow Notifications" <${process.env.SMTP_USER}>`,
+    from: getMailFrom(),
     to,
     subject,
     html: htmlBody,
     text: message, // plain-text fallback
   };
+
+  if (isBrevoHost() && !process.env.SMTP_FROM) {
+    logger.warn(
+      "Brevo: set SMTP_FROM to a verified sender email (From cannot be the smtp-brevo.com login)."
+    );
+  }
 
   try {
     const info = await createTransporter().sendMail(mailOptions);
