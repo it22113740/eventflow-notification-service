@@ -17,6 +17,10 @@ const options = {
         url: `http://localhost:${process.env.PORT || 3004}`,
         description: "Development server",
       },
+      {
+        url: `https://eventflow-notification-service-latest.onrender.com`,
+        description: "Production",
+      }
     ],
     components: {
       securitySchemes: {
